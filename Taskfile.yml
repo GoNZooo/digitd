@@ -1,0 +1,30 @@
+# https://taskfile.dev
+
+version: '3'
+
+tasks:
+  default:
+    cmds:
+      - task: tests
+    silent: true
+  build:
+    cmds:
+      - odin build digitd
+    aliases: [b]
+  tests:
+    deps: [digitd_tests]
+    aliases: [t]
+  digitd_tests:
+    cmds:
+      - odin run digitd_tests
+    silent: true
+    sources:
+      - ./digitd/*
+      - ./digitd_tests/*
+    aliases: [dt]
+  clean:
+    cmds:
+      - rm ./*.bin
+    silent: true
+
+interval: 250ms
