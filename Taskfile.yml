@@ -7,6 +7,10 @@ tasks:
     cmds:
       - task: tests
     silent: true
+  run:
+    cmds:
+      - odin run digitd
+    silent: true
   build:
     cmds:
       - odin build digitd

@@ -5,11 +5,11 @@ import "core:log"
 import "core:mem"
 import "core:fmt"
 import "core:os"
-import "core:runtime"
+// import "core:runtime"
 // import "core:strings"
 // import "core:slice"
 
-import "../digitd"
+// import "../digitd"
 
 TEST_count := 0
 TEST_fail := 0
