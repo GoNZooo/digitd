@@ -8,28 +8,35 @@ tasks:
       - task: tests
     silent: true
   run:
+    deps:
+      - build
     cmds:
-      - odin run digitd
+      - ./digitd.bin 1079
     silent: true
   debug:
     deps:
       - build_debug
     cmds:
-      - lldb ./digitd.bin
+      - lldb ./digitd.bin 1079
     silent: true
     aliases:
       - d
   build:
     cmds:
       - odin build digitd
-    aliases: [b]
+    aliases:
+      - b
+    silent: true
   build_debug:
     cmds:
       - odin build digitd -debug -o:none
-    aliases: [bd]
+    aliases: 
+      - bd
   tests:
-    deps: [digitd_tests]
-    aliases: [t]
+    deps:
+      - digitd_tests
+    aliases: 
+      - t
   digitd_tests:
     cmds:
       - odin run digitd_tests
@@ -37,7 +44,8 @@ tasks:
     sources:
       - ./digitd/*
       - ./digitd_tests/*
-    aliases: [dt]
+    aliases: 
+      - dt
   clean:
     cmds:
       - rm ./*.bin

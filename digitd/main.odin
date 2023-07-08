@@ -1,7 +1,9 @@
 package digitd
 
 import "core:net"
+import "core:strconv"
 import "core:log"
+import "core:os"
 // import "core:mem"
 import "core:mem/virtual"
 import "core:runtime"
@@ -17,6 +19,22 @@ ClientData :: struct {
 main :: proc() {
   context.logger = log.create_console_logger(ident = "main")
 
+  args := os.args
+  if len(args) < 2 {
+    log.panicf("Usage: %s <port>", args[0])
+  }
+  ready := false
+
+  port, parse_ok := strconv.parse_int(args[1], base = 10)
+  if !parse_ok {
+    log.panicf("Failed to parse port number: '%s'", args[1])
+  }
+
+  run_server(port, &ready)
+}
+
+run_server :: proc(port: int, ready: ^bool, logger := context.logger) {
+  context.logger = logger
   main_arena := virtual.Arena{}
   alloc_error := virtual.arena_init_static(&main_arena, 5 * 1024 * 1024)
   main_allocator := virtual.arena_allocator(&main_arena)
@@ -30,7 +48,6 @@ main :: proc() {
   defer thread.pool_finish(&pool)
 
   thread.pool_start(&pool)
-  port := 1079
 
   listen_socket, network_error := net.listen_tcp(
     net.Endpoint{address = net.IP4_Address([4]u8{127, 0, 0, 1}), port = port},
@@ -50,6 +67,7 @@ main :: proc() {
   if set_sockopt_error != nil {
     log.panicf("Failed to set socket option: %v", set_sockopt_error)
   }
+  ready^ = true
 
   running := true
   for running {
@@ -79,8 +97,10 @@ handle_connection :: proc(task: thread.Task) {
   context.logger = log.create_console_logger()
   log.debugf("Handling connection")
   data := cast(^ClientData)task.data
-  context.allocator = data.allocator
   log.debugf("ClientData: %v", data)
+  context.allocator = data.allocator
+  defer free(data, data.main_allocator)
+  defer free_all(data.allocator)
 
   recv_buffer: [1024]u8
   // send_buffer: [2048]u8
@@ -95,7 +115,7 @@ handle_connection :: proc(task: thread.Task) {
       running = false
       continue
     } else if bytes_received == 0 {
-      log.errorf("Connection closed")
+      log.infof("Connection closed")
       running = false
       continue
     }
@@ -104,6 +124,4 @@ handle_connection :: proc(task: thread.Task) {
     received_slice := recv_buffer[:bytes_received]
     log.debugf("Received slice: %s", received_slice)
   }
-
-  free(data, data.main_allocator)
 }
