@@ -11,10 +11,22 @@ tasks:
     cmds:
       - odin run digitd
     silent: true
+  debug:
+    deps:
+      - build_debug
+    cmds:
+      - lldb ./digitd.bin
+    silent: true
+    aliases:
+      - d
   build:
     cmds:
       - odin build digitd
     aliases: [b]
+  build_debug:
+    cmds:
+      - odin build digitd -debug -o:none
+    aliases: [bd]
   tests:
     deps: [digitd_tests]
     aliases: [t]
