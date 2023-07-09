@@ -4,16 +4,58 @@ import "core:net"
 import "core:strconv"
 import "core:log"
 import "core:os"
-// import "core:mem"
+import "core:mem"
 import "core:mem/virtual"
 import "core:runtime"
 import "core:thread"
 import "core:time"
+import "core:strings"
 
 ClientData :: struct {
   socket:         net.TCP_Socket,
   allocator:      runtime.Allocator,
   main_allocator: runtime.Allocator,
+}
+
+get_user_file_path :: proc(
+  username: string,
+  subpath: string,
+  allocator := context.allocator,
+) -> (
+  path: string,
+  error: mem.Allocator_Error,
+) {
+  return strings.concatenate({"/home/", username, "/.local/share/digitd/", subpath}, allocator)
+}
+
+get_info_file_path :: proc(
+  username: string,
+  allocator := context.allocator,
+) -> (
+  path: string,
+  error: mem.Allocator_Error,
+) {
+  return get_user_file_path(username, "info", allocator)
+}
+
+get_plan_file_path :: proc(
+  username: string,
+  allocator := context.allocator,
+) -> (
+  path: string,
+  error: mem.Allocator_Error,
+) {
+  return get_user_file_path(username, "plan", allocator)
+}
+
+get_project_file_path :: proc(
+  username: string,
+  allocator := context.allocator,
+) -> (
+  path: string,
+  error: mem.Allocator_Error,
+) {
+  return get_user_file_path(username, "project", allocator)
 }
 
 main :: proc() {
@@ -80,7 +122,7 @@ run_server :: proc(port: int, ready: ^bool, logger := context.logger) {
     log.debugf("Accepted connection: %d", client_socket)
 
     client_arena := virtual.Arena{}
-    alloc_error = virtual.arena_init_static(&client_arena, 1024)
+    alloc_error = virtual.arena_init_static(&client_arena, 10 * 1024)
     if alloc_error != nil {
       log.panicf("Failed to allocate memory for client arena: %v", alloc_error)
     }
@@ -88,6 +130,7 @@ run_server :: proc(port: int, ready: ^bool, logger := context.logger) {
     client_data := new(ClientData, client_allocator)
     client_data.socket = client_socket
     client_data.main_allocator = main_allocator
+    client_data.allocator = client_allocator
 
     thread.pool_add_task(&pool, client_allocator, handle_connection, client_data)
   }
@@ -101,9 +144,10 @@ handle_connection :: proc(task: thread.Task) {
   context.allocator = data.allocator
   defer free(data, data.main_allocator)
   defer free_all(data.allocator)
+  defer net.close(data.socket)
 
   recv_buffer: [1024]u8
-  // send_buffer: [2048]u8
+  send_buffer: [4096]u8
 
   running := true
   for running {
@@ -122,6 +166,95 @@ handle_connection :: proc(task: thread.Task) {
     log.debugf("Received %d bytes", bytes_received)
 
     received_slice := recv_buffer[:bytes_received]
-    log.debugf("Received slice: %s", received_slice)
+    log.debugf("Received slice: '%s' (%d bytes)", received_slice, len(received_slice))
+    info_string, handle_error := get_info_string(received_slice, data.allocator)
+    if handle_error != nil {
+      log.errorf("Failed to get info string: %v", handle_error)
+      continue
+    }
+
+    copy(send_buffer[:], info_string)
+    sent_bytes, send_error := net.send_tcp(data.socket, send_buffer[:len(info_string)])
+    for sent_bytes < len(info_string) && send_error == nil {
+      sent_bytes, send_error = net.send_tcp(data.socket, send_buffer[sent_bytes:len(info_string)])
+    }
+    if send_error != nil {
+      log.errorf("Failed to send data: %v", send_error)
+      running = false
+      continue
+    }
+    running = false
   }
+
+  log.debugf("Closing socket")
+}
+
+get_info_string :: proc(
+  request_slice: []u8,
+  allocator := context.allocator,
+) -> (
+  info_string: string,
+  error: mem.Allocator_Error,
+) {
+  log.debugf("Request: '%s' (%d bytes)", request_slice, len(request_slice))
+  info_string_builder := strings.builder_make_none(allocator) or_return
+  raw_request := strings.clone_from_bytes(request_slice, allocator) or_return
+  request := strings.trim_right(raw_request, "\r\n")
+  words := strings.split(request, " ", allocator) or_return
+
+  extra_info := false
+  if len(words) >= 1 && words[0] == "/W" {
+    extra_info = true
+    words = words[1:]
+  }
+
+  if len(words) == 0 {
+    return "<directory with extra info>" if extra_info else "<directory>", nil
+  }
+
+  for username in words {
+    build_user_info(username, &info_string_builder)
+  }
+
+  return strings.to_string(info_string_builder), nil
+}
+
+build_user_info :: proc(
+  username: string,
+  builder: ^strings.Builder,
+  allocator := context.allocator,
+  logger := context.logger,
+) -> (
+  error: mem.Allocator_Error,
+) {
+  strings.write_string(builder, username)
+  strings.write_string(builder, ":\n")
+  info_file_path := get_info_file_path(username, allocator) or_return
+  project_file_path := get_project_file_path(username, allocator) or_return
+  plan_file_path := get_plan_file_path(username, allocator) or_return
+
+  info_file, info_ok := os.read_entire_file_from_filename(info_file_path, allocator)
+  if info_ok {
+    strings.write_bytes(builder, info_file)
+  } else {
+    log.warnf("Failed to read info file for user '%s' ('%s')", username, info_file_path)
+  }
+
+  project_file, project_ok := os.read_entire_file_from_filename(project_file_path)
+  if project_ok {
+    strings.write_string(builder, "\n\nProject:\n")
+    strings.write_bytes(builder, project_file)
+  } else {
+    log.warnf("Failed to read project file for user '%s' ('%s')", username, project_file_path)
+  }
+
+  plan_file, plan_ok := os.read_entire_file_from_filename(plan_file_path)
+  if plan_ok {
+    strings.write_string(builder, "\n\nPlan:\n")
+    strings.write_bytes(builder, plan_file)
+  } else {
+    log.warnf("Failed to read plan file for user '%s' ('%s')", username, plan_file_path)
+  }
+
+  return nil
 }
