@@ -119,7 +119,6 @@ run_server :: proc(port: int, ready: ^bool, logger := context.logger) {
     } else if accept_error != nil {
       log.panicf("Failed to accept connection: %v", accept_error)
     }
-    log.debugf("Accepted connection: %d", client_socket)
 
     client_arena := virtual.Arena{}
     alloc_error = virtual.arena_init_static(&client_arena, 10 * 1024)
@@ -163,7 +162,6 @@ handle_connection :: proc(task: thread.Task) {
       running = false
       continue
     }
-    log.debugf("Received %d bytes", bytes_received)
 
     received_slice := recv_buffer[:bytes_received]
     log.debugf("Received slice: '%s' (%d bytes)", received_slice, len(received_slice))
@@ -196,15 +194,15 @@ get_info_string :: proc(
   info_string: string,
   error: mem.Allocator_Error,
 ) {
-  log.debugf("Request: '%s' (%d bytes)", request_slice, len(request_slice))
   info_string_builder := strings.builder_make_none(allocator) or_return
   raw_request := strings.clone_from_bytes(request_slice, allocator) or_return
-  request := strings.trim_right(raw_request, "\r\n")
+  request := strings.trim_right(raw_request, "\r\n ")
   words := strings.split(request, " ", allocator) or_return
 
   extra_info := false
   if len(words) >= 1 && words[0] == "/W" {
     extra_info = true
+    log.debugf("Extra info requested")
     words = words[1:]
   }
 
@@ -227,8 +225,9 @@ build_user_info :: proc(
 ) -> (
   error: mem.Allocator_Error,
 ) {
+  strings.write_string(builder, "= ")
   strings.write_string(builder, username)
-  strings.write_string(builder, ":\n")
+  strings.write_string(builder, " =\n\n")
   info_file_path := get_info_file_path(username, allocator) or_return
   project_file_path := get_project_file_path(username, allocator) or_return
   plan_file_path := get_plan_file_path(username, allocator) or_return
@@ -242,7 +241,7 @@ build_user_info :: proc(
 
   project_file, project_ok := os.read_entire_file_from_filename(project_file_path)
   if project_ok {
-    strings.write_string(builder, "\n\nProject:\n")
+    strings.write_string(builder, "\n\n= Project =\n\n")
     strings.write_bytes(builder, project_file)
   } else {
     log.warnf("Failed to read project file for user '%s' ('%s')", username, project_file_path)
@@ -250,11 +249,13 @@ build_user_info :: proc(
 
   plan_file, plan_ok := os.read_entire_file_from_filename(plan_file_path)
   if plan_ok {
-    strings.write_string(builder, "\n\nPlan:\n")
+    strings.write_string(builder, "\n\n= Plan =\n\n")
     strings.write_bytes(builder, plan_file)
   } else {
     log.warnf("Failed to read plan file for user '%s' ('%s')", username, plan_file_path)
   }
+
+  strings.write_string(builder, "\r\n")
 
   return nil
 }
