@@ -15,6 +15,7 @@ ClientData :: struct {
   socket:         net.TCP_Socket,
   allocator:      runtime.Allocator,
   main_allocator: runtime.Allocator,
+  log_level:      log.Level,
 }
 
 get_user_file_path :: proc(
@@ -59,7 +60,10 @@ get_project_file_path :: proc(
 }
 
 main :: proc() {
-  context.logger = log.create_console_logger(ident = "main")
+  log_level := log.Level.Info
+  when ODIN_DEBUG {log_level = log.Level.Debug}
+  context.logger = log.create_console_logger(ident = "main", lowest = log_level)
+  log.infof("Log level: %v", log_level)
 
   args := os.args
   if len(args) < 2 {
@@ -72,13 +76,13 @@ main :: proc() {
     log.panicf("Failed to parse port number: '%s'", args[1])
   }
 
-  run_server(port, &ready)
+  run_server(port, &ready, log_level)
 }
 
-run_server :: proc(port: int, ready: ^bool, logger := context.logger) {
+run_server :: proc(port: int, ready: ^bool, log_level: log.Level, logger := context.logger) {
   context.logger = logger
   main_arena := virtual.Arena{}
-  alloc_error := virtual.arena_init_static(&main_arena, 5 * 1024 * 1024)
+  alloc_error := virtual.arena_init_static(&main_arena, 10 * 1024 * 1024)
   main_allocator := virtual.arena_allocator(&main_arena)
   context.allocator = main_allocator
   if alloc_error != nil {
@@ -86,7 +90,7 @@ run_server :: proc(port: int, ready: ^bool, logger := context.logger) {
   }
 
   pool := thread.Pool{}
-  thread.pool_init(&pool, main_allocator, 4)
+  thread.pool_init(&pool, main_allocator, 8)
   defer thread.pool_finish(&pool)
 
   thread.pool_start(&pool)
@@ -130,15 +134,16 @@ run_server :: proc(port: int, ready: ^bool, logger := context.logger) {
     client_data.socket = client_socket
     client_data.main_allocator = main_allocator
     client_data.allocator = client_allocator
+    client_data.log_level = log_level
 
     thread.pool_add_task(&pool, client_allocator, handle_connection, client_data)
   }
 }
 
 handle_connection :: proc(task: thread.Task) {
-  context.logger = log.create_console_logger()
-  log.debugf("Handling connection")
   data := cast(^ClientData)task.data
+  context.logger = log.create_console_logger(ident = "client", lowest = data.log_level)
+  log.debugf("Handling connection")
   log.debugf("ClientData: %v", data)
   context.allocator = data.allocator
   defer free(data, data.main_allocator)
@@ -164,7 +169,6 @@ handle_connection :: proc(task: thread.Task) {
     }
 
     received_slice := recv_buffer[:bytes_received]
-    log.debugf("Received slice: '%s' (%d bytes)", received_slice, len(received_slice))
     info_string, handle_error := get_info_string(received_slice, data.allocator)
     if handle_error != nil {
       log.errorf("Failed to get info string: %v", handle_error)
@@ -197,6 +201,7 @@ get_info_string :: proc(
   info_string_builder := strings.builder_make_none(allocator) or_return
   raw_request := strings.clone_from_bytes(request_slice, allocator) or_return
   request := strings.trim_right(raw_request, "\r\n ")
+  log.debugf("Request: '%s' (%d bytes)", request, len(request))
   words := strings.split(request, " ", allocator) or_return
 
   extra_info := false

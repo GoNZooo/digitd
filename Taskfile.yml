@@ -23,7 +23,7 @@ tasks:
       - d
   build:
     cmds:
-      - odin build digitd
+      - odin build digitd -o:speed
     aliases:
       - b
     silent: true
