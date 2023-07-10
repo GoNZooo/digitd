@@ -45,3 +45,9 @@ be treated as a journal of sorts.
 
 A good example of this in the context of someone journaling about their work and company is
 [John Carmack's plan files at Id Software](https://github.com/ESWAT/john-carmack-plan-archive).
+
+## User directory information
+
+The daemon will read `$HOME/.local/share/digitd/users` for what the user directory information
+should look like. Note that if you run this as `root` it'll be read from
+`/root/.local/share/digitd/users`.
