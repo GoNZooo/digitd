@@ -10,12 +10,32 @@ import "core:runtime"
 import "core:thread"
 import "core:time"
 import "core:strings"
+import "core:path/filepath"
 
 ClientData :: struct {
   socket:         net.TCP_Socket,
   allocator:      runtime.Allocator,
   main_allocator: runtime.Allocator,
   log_level:      log.Level,
+}
+
+UserListError :: union {
+  mem.Allocator_Error,
+  EnvironmentVariableNotFound,
+  FileReadError,
+}
+
+EnvironmentVariableNotFound :: struct {
+  key: string,
+}
+
+FileReadError :: struct {
+  path: string,
+}
+
+InfoStringError :: union #shared_nil {
+  mem.Allocator_Error,
+  UserListError,
 }
 
 get_user_file_path :: proc(
@@ -57,6 +77,25 @@ get_project_file_path :: proc(
   error: mem.Allocator_Error,
 ) {
   return get_user_file_path(username, "project", allocator)
+}
+
+get_users :: proc(allocator := context.allocator) -> (users_data: string, error: UserListError) {
+  home_folder := os.get_env("HOME", allocator)
+  if home_folder == "" {
+    return "", EnvironmentVariableNotFound{key = "HOME"}
+  }
+
+  users_file_path := filepath.join({home_folder, ".local/share/digitd/users"}, allocator)
+  defer delete(users_file_path)
+  users_file_data, read_ok := os.read_entire_file_from_filename(users_file_path, allocator)
+  defer delete(users_file_data)
+  if !read_ok {
+    return "", FileReadError{path = users_file_path}
+  }
+
+  cloned := strings.clone_from_bytes(users_file_data, allocator) or_return
+
+  return cloned, nil
 }
 
 main :: proc() {
@@ -196,13 +235,15 @@ get_info_string :: proc(
   allocator := context.allocator,
 ) -> (
   info_string: string,
-  error: mem.Allocator_Error,
+  error: InfoStringError,
 ) {
   info_string_builder := strings.builder_make_none(allocator) or_return
   raw_request := strings.clone_from_bytes(request_slice, allocator) or_return
+  defer delete(raw_request)
   request := strings.trim_right(raw_request, "\r\n ")
   log.debugf("Request: '%s' (%d bytes)", request, len(request))
   words := strings.split(request, " ", allocator) or_return
+  defer delete(words)
 
   extra_info := false
   if len(words) >= 1 && words[0] == "/W" {
@@ -211,8 +252,8 @@ get_info_string :: proc(
     words = words[1:]
   }
 
-  if len(words) == 0 {
-    return "<directory with extra info>" if extra_info else "<directory>", nil
+  if len(words) == 0 || len(words) == 1 && words[0] == "" {
+    return get_users(allocator)
   }
 
   for username in words {
