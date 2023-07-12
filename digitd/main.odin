@@ -288,28 +288,28 @@ build_user_info :: proc(
   plan_file_path := get_plan_file_path(username, allocator) or_return
   defer delete(plan_file_path)
 
-  info_file, info_ok := os.read_entire_file_from_filename(info_file_path, allocator)
+  info_data, info_ok := os.read_entire_file_from_filename(info_file_path, allocator)
   if info_ok {
-    strings.write_bytes(builder, info_file)
-    delete(info_file)
+    strings.write_bytes(builder, info_data)
+    delete(info_data)
   } else {
     log.warnf("Failed to read info file for user '%s' ('%s')", username, info_file_path)
   }
 
-  project_file, project_ok := os.read_entire_file_from_filename(project_file_path)
+  project_data, project_ok := os.read_entire_file_from_filename(project_file_path)
   if project_ok {
     strings.write_string(builder, "\n\n= Project =\n\n")
-    strings.write_bytes(builder, project_file)
-    delete(project_file)
+    strings.write_bytes(builder, project_data)
+    delete(project_data)
   } else {
     log.warnf("Failed to read project file for user '%s' ('%s')", username, project_file_path)
   }
 
-  plan_file, plan_ok := os.read_entire_file_from_filename(plan_file_path)
+  plan_data, plan_ok := os.read_entire_file_from_filename(plan_file_path)
   if plan_ok {
     strings.write_string(builder, "\n\n= Plan =\n\n")
-    strings.write_bytes(builder, plan_file)
-    delete(plan_file)
+    strings.write_bytes(builder, plan_data)
+    delete(plan_data)
   } else {
     log.warnf("Failed to read plan file for user '%s' ('%s')", username, plan_file_path)
   }
