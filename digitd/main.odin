@@ -1,6 +1,8 @@
 package digitd
 
 import "core:net"
+import "core:math/rand"
+import "core:fmt"
 import "core:strconv"
 import "core:log"
 import "core:os"
@@ -181,10 +183,12 @@ run_server :: proc(port: int, ready: ^bool, log_level: log.Level, logger := cont
 
 handle_connection :: proc(task: thread.Task) {
   data := cast(^ClientData)task.data
-  context.logger = log.create_console_logger(ident = "client", lowest = data.log_level)
+  context.allocator = data.allocator
+  random_number := rand.uint32()
+  log_ident := fmt.aprintf("%x", random_number)
+  context.logger = log.create_console_logger(ident = log_ident, lowest = data.log_level)
   log.debugf("Handling connection")
   log.debugf("ClientData: %v", data)
-  context.allocator = data.allocator
   defer free(data, data.main_allocator)
   defer free_all(data.allocator)
   defer net.close(data.socket)
